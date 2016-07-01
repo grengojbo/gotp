@@ -10,11 +10,12 @@ GIT_COMMIT="$(shell git rev-parse HEAD)"
 all: arm cli
 
 arm: clean
-	@GOOS=linux GOARCH=arm GOARM=7 go build -a -tags 'linux netgo' -o ${BIN_NAME}-arm main.go
+	@mkdir -p ./dist-arm
+	@GOOS=linux GOARCH=arm GOARM=7 go build -a -tags 'linux netgo' -o dist-arm/${BIN_NAME} main.go
 
 clean:
 	@test ! -e ./${BIN_NAME} || rm ./${BIN_NAME}
-	@test ! -e ./${BIN_NAME}-arm || rm ./${BIN_NAME}-arm
+	@test ! -e ./dist-arm/${BIN_NAME} || rm ./dist-arm/${BIN_NAME}
 	@git gc --prune=0 --aggressive
 	@find . -name "*.orig" -type f -delete
 	@find . -name "*.log" -type f -delete
