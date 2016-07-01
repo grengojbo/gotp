@@ -19,7 +19,7 @@ var (
 // Commands - list command
 var Commands = []cli.Command{
 	cmdTest,
-	cmdPrint,
+	cmdText,
 }
 
 var cmdTest = cli.Command{
@@ -28,10 +28,10 @@ var cmdTest = cli.Command{
 	Action: runTest,
 }
 
-var cmdPrint = cli.Command{
-	Name:   "print",
+var cmdText = cli.Command{
+	Name:   "text",
 	Usage:  "Print text",
-	Action: runPrint,
+	Action: runText,
 }
 
 func runTest(c *cli.Context) {
@@ -49,7 +49,7 @@ func runTest(c *cli.Context) {
 	}
 }
 
-func runPrint(c *cli.Context) {
+func runText(c *cli.Context) {
 	if c.GlobalBool("verbose") {
 		fmt.Println("Print text")
 	}
@@ -61,8 +61,14 @@ func runPrint(c *cli.Context) {
 		fmt.Println(c.Args())
 		fmt.Println("---------------------------------")
 	}
-	// p.Begin()
-	// p.Write("test")
+	p.Begin()
+	p.SetAlign("R")
+	for _, src := range c.Args() {
+		// p.Write(src)
+		p.WriteText(src)
+		p.Linefeed()
+	}
+	p.Linefeed()
 
 	if c.GlobalBool("verbose") {
 		fmt.Println("Finish :)")

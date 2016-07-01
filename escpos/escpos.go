@@ -43,7 +43,7 @@ var textReplaceMap = map[string]string{
 }
 
 // replace text from the above map
-func textReplace(data string) string {
+func (e *Escpos) textReplace(data string) string {
 	for k, v := range textReplaceMap {
 		data = strings.Replace(data, k, v, -1)
 	}
@@ -67,7 +67,7 @@ type Escpos struct {
 	upsidedown uint8
 	rotate     uint8
 
-	prevByte      string
+	prevByte      byte
 	column        uint
 	maxColumn     uint8
 	charHeight    uint8
@@ -109,7 +109,7 @@ func (e *Escpos) reset() {
 	e.reverse = 0
 	e.smooth = 0
 
-	e.prevByte = "\n"
+	e.prevByte = byte(10)
 	e.column = 0
 	e.maxColumn = 32
 	e.charHeight = 24
@@ -129,7 +129,7 @@ func (e *Escpos) reset() {
 // New - create Escpos printer
 func New(debug bool, port string, baud int) (e *Escpos) {
 	e = &Escpos{Debug: debug}
-	e.Firmware = 264
+	e.Firmware = 268
 	if !e.Debug {
 		config := &serial.Config{Name: port, Baud: baud}
 		s, err := serial.OpenPort(config)
@@ -200,7 +200,9 @@ func (e *Escpos) WriteRaw(data []byte) (n int, err error) {
 			// e.dst.Write(data)
 			n, err = e.Serial.Write(data)
 		}
-		e.timeoutSet(BYTETIME)
+		e.timeoutSet(int64(len(data)) * BYTETIME)
+		// OR
+		// e.timeoutSet(BYTETIME)
 	} else {
 		if e.Verbose {
 			fmt.Printf("Wrote NO bytes\n")
@@ -209,7 +211,7 @@ func (e *Escpos) WriteRaw(data []byte) (n int, err error) {
 	return n, err
 }
 
-// write a string to the printer
+// Write - write a string to the printer
 func (e *Escpos) Write(data string) (int, error) {
 	// if e.Verbose {
 	// 	fmt.Printf("func Write()\n")
@@ -329,6 +331,7 @@ func (e *Escpos) Begin() {
 //   feed(2);
 // }
 
+// TestPage - print test page
 func (e *Escpos) TestPage() {
 	if e.Verbose {
 		fmt.Printf("func TestPage()\n")
@@ -340,6 +343,98 @@ func (e *Escpos) TestPage() {
 	//   e.dotFeedTime * (6 * 26 + 30)); // 26 text lines (feed 6 dots) + blank line
 	e.timeoutSet(e.dotPrintTime*24*26 + e.dotFeedTime*(6*26+30))
 }
+
+// Linefeed -  send linefeed
+func (e *Escpos) Linefeed() {
+	if e.Verbose {
+		fmt.Printf("func Linefeed()\n")
+	}
+	// byte 110
+	// e.Write("\n")
+	// в python version \n 10
+	e.WriteBytes([]byte{10})
+}
+
+// SetAlign - set alignment
+// align (left, center, right)
+func (e *Escpos) SetAlign(align string) (err error) {
+	if e.Verbose {
+		fmt.Printf("func SetAlign()\n")
+	}
+	a := 0
+	switch align {
+	case "left":
+		a = 0
+	case "center":
+		a = 1
+	case "right":
+		a = 2
+	case "L":
+		a = 0
+	case "C":
+		a = 1
+	case "R":
+		a = 2
+	default:
+		err = fmt.Errorf("Invalid alignment: %s", align)
+	}
+	e.Write(fmt.Sprintf("\x1Ba%c", a))
+	return err
+}
+
+// WriteText - The underlying method for all high-level printing (e.g. println()).
+// The inherited Print class handles the rest!
+func (e *Escpos) WriteText(data string) {
+	if e.Verbose {
+		fmt.Printf("func SetAlign()\n")
+		// e.Write("\x13")
+	}
+	data = e.textReplace(data)
+	if len(data) > 0 {
+		// b := byte{19}
+		for _, c := range []byte(data) {
+			// stream->write(c);
+			if c != 0x13 {
+				e.timeoutWait()
+				// stream->write(c);
+				if !e.Debug {
+					// e.dst.Write(data)
+					_, err := e.Serial.Write([]byte{c})
+					if err != nil {
+						e.err = err
+					}
+				}
+				// fmt.Println(c)
+				d := BYTETIME
+
+				e.timeoutSet(int64(d))
+				e.prevByte = c
+			}
+		}
+
+		// e.Write(data)
+	}
+	// if(c != 0x13) { // Strip carriage returns
+	//     timeoutWait();
+	//     stream->write(c);
+	//     unsigned long d = BYTE_TIME;
+	//     if((c == '\n') || (column == maxColumn)) { // If newline or wrap
+	//       d += (prevByte == '\n') ?
+	//         ((charHeight+lineSpacing) * dotFeedTime) :             // Feed line
+	//         ((charHeight*dotPrintTime)+(lineSpacing*dotFeedTime)); // Text line
+	//       column = 0;
+	//       c      = '\n'; // Treat wrap as newline on next pass
+	//     } else {
+	//       column++;
+	//     }
+	//     timeoutSet(d);
+	//     prevByte = c;
+	//   }
+
+	//   return 1;
+}
+
+// -------------- TODO --------------
 
 // These commands work only on printers w/recent firmware ------------------
 
@@ -400,11 +495,6 @@ func (e *Escpos) Cut() {
 // send cash
 func (e *Escpos) Cash() {
 	e.Write("\x1B\x70\x00\x0A\xFF")
-}
-
-// send linefeed
-func (e *Escpos) Linefeed() {
-	e.Write("\n")
 }
 
 // send N formfeeds
@@ -533,22 +623,6 @@ func (e *Escpos) Pulse() {
 	e.Write("\x1Bp\x02")
 }
 
-// set alignment
-func (e *Escpos) SetAlign(align string) {
-	a := 0
-	switch align {
-	case "left":
-		a = 0
-	case "center":
-		a = 1
-	case "right":
-		a = 2
-	default:
-		log.Fatal(fmt.Sprintf("Invalid alignment: %s", align))
-	}
-	e.Write(fmt.Sprintf("\x1Ba%c", a))
-}
-
 // set language -- ESC R
 func (e *Escpos) SetLang(lang string) {
 	l := 0
@@ -578,27 +652,6 @@ func (e *Escpos) SetLang(lang string) {
 		log.Fatal(fmt.Sprintf("Invalid language: %s", lang))
 	}
 	e.Write(fmt.Sprintf("\x1BR%c", l))
-}
-
-func (e *Escpos) WriteText(params map[string]string, data string) {
-	// if(c != 0x13) { // Strip carriage returns
-	//     timeoutWait();
-	//     stream->write(c);
-	//     unsigned long d = BYTE_TIME;
-	//     if((c == '\n') || (column == maxColumn)) { // If newline or wrap
-	//       d += (prevByte == '\n') ?
-	//         ((charHeight+lineSpacing) * dotFeedTime) :             // Feed line
-	//         ((charHeight*dotPrintTime)+(lineSpacing*dotFeedTime)); // Text line
-	//       column = 0;
-	//       c      = '\n'; // Treat wrap as newline on next pass
-	//     } else {
-	//       column++;
-	//     }
-	//     timeoutSet(d);
-	//     prevByte = c;
-	//   }
-
-	//   return 1;
 }
 
 // do a block of text
@@ -691,7 +744,7 @@ func (e *Escpos) Text(params map[string]string, data string) {
 	}
 
 	// do text replace, then write data
-	data = textReplace(data)
+	data = e.textReplace(data)
 	if len(data) > 0 {
 		e.Write(data)
 	}
