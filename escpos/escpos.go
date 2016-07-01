@@ -3,11 +3,24 @@ package escpos
 import (
 	"encoding/base64"
 	"fmt"
-	"io"
 	"log"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/tarm/serial"
 )
+
+// BAUDRATE Though most of these printers are factory configured for 19200 baud
+// operation, a few rare specimens instead work at 9600.  If so, change
+// this constant.  This will NOT make printing slower!  The physical
+// print and feed mechanisms are the bottleneck, not the port speed.
+const BAUDRATE = 19200
+
+// BYTETIME Number of microseconds to issue one byte to the printer.  11 bits
+// (not 8) to accommodate idle, start and stop bits.  Idle time might
+// be unnecessary, but erring on side of caution here.
+const BYTETIME = (((11 * 1000000) + (BAUDRATE / 2)) / BAUDRATE)
 
 // text replacement map
 var textReplaceMap = map[string]string{
@@ -37,9 +50,13 @@ func textReplace(data string) string {
 	return data
 }
 
+// Escpos - library for the Adafruit Thermal Printer:
+// https://www.adafruit.com/product/597
 type Escpos struct {
 	// destination
-	dst io.Writer
+	// dst io.Writer
+	// config *serial.Config
+	Serial *serial.Port
 
 	// font metrics
 	width, height uint8
@@ -51,7 +68,7 @@ type Escpos struct {
 	rotate     uint8
 
 	prevByte      string
-	column        uint8
+	column        uint
 	maxColumn     uint8
 	charHeight    uint8
 	lineSpacing   uint8
@@ -62,12 +79,15 @@ type Escpos struct {
 	// state toggles GS[char]
 	reverse, smooth uint8
 
-	resumeTime     uint64
-	dotPrintTime   uint64
-	dotFeedTime    uint64
+	resumeTime     int64
+	dotPrintTime   int64
+	dotFeedTime    int64
 	maxChunkHeight uint8
 
-	Verbose bool
+	Verbose  bool
+	Debug    bool
+	Firmware int
+	err      error
 }
 
 // reset toggles
@@ -97,20 +117,32 @@ func (e *Escpos) reset() {
 	e.barcodeHeight = 50
 	e.printDensity = 10
 
-	// #if PRINTER_FIRMWARE >= 264
 	//  // Configure tab stops on recent printers
 	// Set tab stops...
-	e.Write("\x1BD")
-	e.WriteBytes([]byte{4, 8, 12, 16})  // ...every 4 columns,
-	e.WriteBytes([]byte{20, 24, 28, 0}) // 0 marks end-of-list.
-	// #endif
+	if e.Firmware >= 264 {
+		e.Write("\x1BD")
+		e.WriteBytes([]byte{4, 8, 12, 16})  // ...every 4 columns,
+		e.WriteBytes([]byte{20, 24, 28, 0}) // 0 marks end-of-list.
+	}
 }
 
-// create Escpos printer
-func New(dst io.Writer) (e *Escpos) {
-	e = &Escpos{dst: dst}
+// New - create Escpos printer
+func New(debug bool, port string, baud int) (e *Escpos) {
+	e = &Escpos{Debug: debug}
+	e.Firmware = 264
+	if !e.Debug {
+		config := &serial.Config{Name: port, Baud: baud}
+		s, err := serial.OpenPort(config)
+		if err != nil {
+			e.err = err
+		} else {
+			e.Serial = s
+		}
+	}
+
 	e.printDensity = 10
 	e.printBreakTime = 2
+	e.timeoutSet(500000)
 	e.reset()
 	return
 }
@@ -140,16 +172,23 @@ func (e *Escpos) SetDefault() {
 // 	}
 // }
 
+// WriteBytes - write byte
 func (e *Escpos) WriteBytes(data []byte) {
 	e.timeoutWait()
 	if e.Verbose {
 		fmt.Println(data)
 	}
-	e.dst.Write(data)
-	// e.timeoutSet(2 * BYTE_TIME);
+	if !e.Debug {
+		// e.dst.Write(data)
+		_, err := e.Serial.Write(data)
+		if err != nil {
+			e.err = err
+		}
+	}
+	e.timeoutSet(int64(len(data)) * BYTETIME)
 }
 
-// write raw bytes to printer
+// WriteRaw - write raw bytes to printer
 func (e *Escpos) WriteRaw(data []byte) (n int, err error) {
 	if len(data) > 0 {
 		e.timeoutWait()
@@ -157,14 +196,17 @@ func (e *Escpos) WriteRaw(data []byte) (n int, err error) {
 			fmt.Printf("Writing %d bytes\n", len(data))
 			fmt.Println(data)
 		}
-		e.dst.Write(data)
-		// e.timeoutSet(BYTE_TIME);
+		if !e.Debug {
+			// e.dst.Write(data)
+			n, err = e.Serial.Write(data)
+		}
+		e.timeoutSet(BYTETIME)
 	} else {
 		if e.Verbose {
 			fmt.Printf("Wrote NO bytes\n")
 		}
 	}
-	return 0, nil
+	return n, err
 }
 
 // write a string to the printer
@@ -175,12 +217,13 @@ func (e *Escpos) Write(data string) (int, error) {
 	return e.WriteRaw([]byte(data))
 }
 
-func (e *Escpos) timeoutSet(x uint64) {
+func (e *Escpos) timeoutSet(x int64) {
 	// if(!dtrEnabled) resumeTime = micros() + x;
 	e.resumeTime = x
 }
 
 func (e *Escpos) timeoutWait() {
+	time.Sleep(time.Microsecond * time.Duration(e.resumeTime))
 	// if(dtrEnabled) {
 	//    while(digitalRead(dtrPin) == HIGH);
 	//  } else {
@@ -196,28 +239,30 @@ func (e *Escpos) wake() {
 	}
 	e.timeoutSet(0)           // Reset timeout counter
 	e.WriteBytes([]byte{255}) // Wake
-	// #if PRINTER_FIRMWARE >= 264
-	//   delay(50);
-	//   writeBytes(ASCII_ESC, '8', 0, 0); // Sleep off (important!)
-	// #else
-	//   // Datasheet recommends a 50 mS delay before issuing further commands,
-	//   // but in practice this alone isn't sufficient (e.g. text size/style
-	//   // commands may still be misinterpreted on wake).  A slightly longer
-	//   // delay, interspersed with NUL chars (no-ops) seems to help.
-	//   for(uint8_t i=0; i<10; i++) {
-	//     writeBytes(0);
-	//     timeoutSet(10000L);
-	//   }
-	// #endif
+	if e.Firmware >= 264 {
+		//   delay(50);
+		time.Sleep(time.Millisecond * 50)
+		//   writeBytes(ASCII_ESC, '8', 0, 0); // Sleep off (important!)
+		e.WriteBytes([]byte{27, 56, 0, 0})
+	} else {
+		//   // Datasheet recommends a 50 mS delay before issuing further commands,
+		//   // but in practice this alone isn't sufficient (e.g. text size/style
+		//   // commands may still be misinterpreted on wake).  A slightly longer
+		//   // delay, interspersed with NUL chars (no-ops) seems to help.
+		//   for(uint8_t i=0; i<10; i++) {
+		//     writeBytes(0);
+		//     timeoutSet(10000L);
+		e.WriteBytes([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+		e.timeoutSet(10000)
+	}
 }
 
+// Begin - The printer can't start receiving data immediately upon power up --
+// it needs a moment to cold boot and initialize.  Allow at least 1/2
+// sec of uptime before printer can receive data.
 // func (e *Escpos) Begin(heatTime uint8) {
 func (e *Escpos) Begin() {
-	// The printer can't start receiving data immediately upon power up --
-	// it needs a moment to cold boot and initialize.  Allow at least 1/2
-	// sec of uptime before printer can receive data.
 	e.timeoutSet(500000)
-
 	e.wake()
 	e.reset()
 
@@ -244,6 +289,10 @@ func (e *Escpos) Begin() {
 
 	// writeBytes(ASCII_ESC, '7');   // Esc 7 (print settings)
 	e.Write("\x1B7")
+	e.WriteBytes([]byte{11, 80, 40})
+	// OR
+	// e.WriteBytes([]byte{7, 80, 2})
+
 	// writeBytes(11, heatTime, 40); // Heating dots, heat time, heat interval
 
 	// Print density description from manual:
@@ -260,13 +309,13 @@ func (e *Escpos) Begin() {
 	// writeBytes(ASCII_DC2, '#', (printBreakTime << 5) | printDensity);
 	// fmt.Println((e.printBreakTime << 5) | e.printDensity)
 	// e.Write(fmt.Sprintf("\x12#%v", (e.printBreakTime<<5)|e.printDensity))
-	e.Write("\x12#\x4A")
+	e.Write(fmt.Sprintf("\x12#%c", (e.printBreakTime<<5)|e.printDensity))
 
 	// Enable DTR pin if requested
 	// if(dtrPin < 255) {
 	//   pinMode(dtrPin, INPUT_PULLUP);
 	//   writeBytes(ASCII_GS, 'a', (1 << 5));
-	// e.Write("\x1Da\x20")
+	// e.Write(fmt.Sprintf("\x1Da%c", (1 << 5)))
 	//   dtrEnabled = true;
 	// }
 
@@ -290,6 +339,46 @@ func (e *Escpos) TestPage() {
 	//   e.dotPrintTime * 24 * 26 +      // 26 lines w/text (ea. 24 dots high)
 	//   e.dotFeedTime * (6 * 26 + 30)); // 26 text lines (feed 6 dots) + blank line
 	e.timeoutSet(e.dotPrintTime*24*26 + e.dotFeedTime*(6*26+30))
+}
+
+// These commands work only on printers w/recent firmware ------------------
+
+// Alters some chars in ASCII 0x23-0x7E range; see datasheet
+func (e *Escpos) SetCharset(val uint8) {
+	if e.Verbose {
+		fmt.Printf("func SetCharset()\n")
+	}
+	if val > 15 {
+		val = 15
+	}
+	e.Write(fmt.Sprintf("\x1BR%c", val))
+}
+
+// Selects alt symbols for 'upper' ASCII values 0x80-0xFF
+func (e *Escpos) SetCodePage(val uint8) {
+	if e.Verbose {
+		fmt.Printf("func SetCodePage()\n")
+	}
+	if val > 47 {
+		val = 47
+	}
+	e.Write(fmt.Sprintf("\x1Bt%c", val))
+}
+
+func (e *Escpos) tab() {
+	if e.Verbose {
+		fmt.Printf("func tab()\n")
+	}
+	// writeBytes(ASCII_TAB);
+	e.Write("\t")
+	// e.column = (e.column + 4) & 0b11111100;
+}
+
+func (e *Escpos) SetCharSpacing(val uint8) {
+	if e.Verbose {
+		fmt.Printf("func SetCharSpacing()\n")
+	}
+	e.Write(fmt.Sprintf("\x1B %c", val))
 }
 
 // init/reset printer settings
@@ -489,6 +578,27 @@ func (e *Escpos) SetLang(lang string) {
 		log.Fatal(fmt.Sprintf("Invalid language: %s", lang))
 	}
 	e.Write(fmt.Sprintf("\x1BR%c", l))
+}
+
+func (e *Escpos) WriteText(params map[string]string, data string) {
+	// if(c != 0x13) { // Strip carriage returns
+	//     timeoutWait();
+	//     stream->write(c);
+	//     unsigned long d = BYTE_TIME;
+	//     if((c == '\n') || (column == maxColumn)) { // If newline or wrap
+	//       d += (prevByte == '\n') ?
+	//         ((charHeight+lineSpacing) * dotFeedTime) :             // Feed line
+	//         ((charHeight*dotPrintTime)+(lineSpacing*dotFeedTime)); // Text line
+	//       column = 0;
+	//       c      = '\n'; // Treat wrap as newline on next pass
+	//     } else {
+	//       column++;
+	//     }
+	//     timeoutSet(d);
+	//     prevByte = c;
+	//   }
+
+	//   return 1;
 }
 
 // do a block of text
