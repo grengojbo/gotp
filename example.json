@@ -1,0 +1,102 @@
+{
+  "header": [
+    {
+      "line": false,
+      "align": "left",
+      "style": "bold",
+      "size": "normal",
+      "text": "Чек № 003-0000001",
+      "image": false,
+      "qrCode": false,
+      "barCode": false
+    }
+  ],
+  "lines": [
+    {
+      "line": false,
+      "align": "left",
+      "style": "normal",
+      "size": "normal",
+      "text": "Хліб український столичний под..",
+      "image": false,
+      "qrCode": false,
+      "barCode": false
+    },
+    {
+      "line": true,
+      "align": "right",
+      "style": "normal",
+      "size": "normal",
+      "text": "10.555 X 80.25 = 847.40",
+      "image": false,
+      "qrCode": false,
+      "barCode": false
+    }
+  ],
+  "footer": [
+    {
+      "line": false,
+      "align": "left",
+      "style": "normal",
+      "size": "large",
+      "text": "СУММА: 12345.00",
+      "image": false,
+      "qrCode": false,
+      "barCode": false
+    },
+    {
+      "line": true,
+      "text": ""
+    },
+    {
+      "line": false,
+      "align": "center",
+      "style": "small",
+      "size": "normal",
+      "text": "Нефіскальний чек!",
+      "image": false,
+      "qrCode": false,
+      "barCode": false
+    },
+    {
+      "line": false,
+      "align": "center",
+      "style": "normal",
+      "size": "normal",
+      "text": "Дякуємо за покупку!",
+      "image": false,
+      "qrCode": false,
+      "barCode": false
+    },
+    {
+      "line": false,
+      "align": "center",
+      "style": "normal",
+      "size": "normal",
+      "text": "1234567890",
+      "image": false,
+      "qrCode": false,
+      "barCode": true
+    },
+    {
+      "line": false,
+      "align": "center",
+      "style": "normal",
+      "size": "normal",
+      "text": "001-000000001",
+      "image": false,
+      "qrCode": true,
+      "barCode": false
+    },
+    {
+      "line": false,
+      "align": "center",
+      "style": "normal",
+      "size": "normal",
+      "text": "./example.png",
+      "image": true,
+      "qrCode": false,
+      "barCode": false
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/codegangsta/cli"
 	"github.com/grengojbo/gotp/escpos"
+	"github.com/grengojbo/gotp/models"
 )
 
 var (
@@ -20,12 +21,19 @@ var (
 var Commands = []cli.Command{
 	cmdTest,
 	cmdText,
+	cmdFile,
 }
 
 var cmdTest = cli.Command{
 	Name:   "test",
 	Usage:  "Print Test Page",
 	Action: runTest,
+}
+
+var cmdFile = cli.Command{
+	Name:   "file",
+	Usage:  "Print from file",
+	Action: runFile,
 }
 
 var cmdText = cli.Command{
@@ -57,6 +65,43 @@ func runTest(c *cli.Context) {
 	}
 }
 
+func runFile(c *cli.Context) {
+	if c.GlobalBool("verbose") {
+		fmt.Println("Print from file")
+	}
+	if c.Args().Present() {
+	} else {
+		fmt.Println("Is not file path")
+	}
+	res, err := models.LoadPrintModel(c.Args().First())
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		p := escpos.New(c.GlobalBool("debug"), "/dev/ttyAMA0", 19200)
+		p.Verbose = c.GlobalBool("verbose")
+
+		p.Begin()
+		p.SetCodePage(c.GlobalString("encode"))
+
+		if len(res.Header) > 0 {
+			p.WriteNode(res.Header)
+			p.Feed(1)
+		}
+		if len(res.Lines) > 0 {
+			p.WriteNode(res.Lines)
+			p.Feed(2)
+		}
+		if len(res.Footer) > 0 {
+			p.WriteNode(res.Footer)
+			p.Feed(2)
+		}
+	}
+
+	if c.GlobalBool("verbose") {
+		fmt.Println("Finish :)")
+	}
+}
+
 func runText(c *cli.Context) {
 	if c.GlobalBool("verbose") {
 		fmt.Println("Print text")
@@ -80,7 +125,7 @@ func runText(c *cli.Context) {
 			}
 			p.Linefeed()
 		}
-		p.Linefeed()
+		p.Feed(2)
 	} else {
 		fmt.Println("Is not argument :)")
 	}

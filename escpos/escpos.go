@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/grengojbo/gotp/models"
 	"github.com/tarm/serial"
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
@@ -353,17 +354,6 @@ func (e *Escpos) TestPage() {
 	e.timeoutSet(e.dotPrintTime*24*26 + e.dotFeedTime*(6*26+30))
 }
 
-// Linefeed -  send linefeed
-func (e *Escpos) Linefeed() {
-	if e.Verbose {
-		fmt.Printf("func Linefeed()\n")
-	}
-	// byte 110
-	// e.Write("\n")
-	// в python version \n 10
-	e.WriteBytes([]byte{10})
-}
-
 // SetAlign - set alignment
 // align (left, center, right)
 func (e *Escpos) SetAlign(align string) (err error) {
@@ -492,6 +482,91 @@ func (e *Escpos) tab() {
 	e.column = (e.column + 4)
 }
 
+// LinePrint - print line -------
+func (e *Escpos) LinePrint() {
+	for i := 0; i < int(e.maxColumn); i++ {
+		e.Write("-")
+	}
+}
+
+// Feed - send N feeds
+func (e *Escpos) Feed(n int) {
+	if e.Firmware >= 264 {
+		e.Write(fmt.Sprintf("\x1Bd%c", n))
+		e.timeoutSet(e.dotFeedTime * e.charHeight)
+		e.prevByte = ASCIILF
+		e.column = 0
+	} else {
+		for i := 0; i < n; i++ {
+			e.WriteBytes([]byte{10})
+		}
+	}
+}
+
+// Linefeed -  send linefeed
+func (e *Escpos) Linefeed() {
+	if e.Verbose {
+		fmt.Printf("func Linefeed()\n")
+	}
+	e.Feed(1)
+	// byte 110
+	// e.Write("\n")
+	// в python version \n 10
+	// e.WriteBytes([]byte{10})
+}
+
+// FormFeed -  send formfeed
+func (e *Escpos) FormFeed() {
+	e.Feed(1)
+}
+
+// SetBold - bold mode true/false
+func (e *Escpos) SetBold(state bool) {
+	if state {
+		e.WriteBytes([]byte{27, 32, 1})
+		e.WriteBytes([]byte{27, 69, 1})
+	} else {
+		e.WriteBytes([]byte{27, 32, 0})
+		e.WriteBytes([]byte{27, 69, 0})
+	}
+}
+
+// SetSmall - set small font true/false
+func (e *Escpos) SetSmall(state bool) {
+	if state {
+		e.WriteBytes([]byte{27, 33, 1})
+	} else {
+		e.WriteBytes([]byte{27, 33, 0})
+	}
+}
+
+// SetFontSize - set font size
+// large/medium/normal
+func (e *Escpos) SetFontSize(name string) {
+	if name == "large" || name == "L" {
+		e.charHeight = 48
+		e.maxColumn = 16
+		e.WriteBytes([]byte{29, 33, 17, 10})
+	} else if name == "medium" || name == "M" {
+		e.charHeight = 48
+		e.maxColumn = 32
+		e.WriteBytes([]byte{29, 33, 1, 10})
+	} else {
+		e.charHeight = 24
+		e.maxColumn = 32
+		e.WriteBytes([]byte{29, 33, 0, 10})
+	}
+}
+
+// DoubleHeight - set double height
+func (e *Escpos) DoubleHeight(state bool) {
+	if state {
+		e.Write(fmt.Sprintf("\x1B!%c", (1 << 4)))
+	} else {
+		e.Write(fmt.Sprintf("\x1B!%c", 0))
+	}
+}
+
 // -------------- TODO --------------
 
 func (e *Escpos) SetCharSpacing(val uint8) {
@@ -522,16 +597,6 @@ func (e *Escpos) Cash() {
 	e.Write("\x1B\x70\x00\x0A\xFF")
 }
 
-// send N formfeeds
-func (e *Escpos) FormfeedN(n int) {
-	e.Write(fmt.Sprintf("\x1Bd%c", 1))
-}
-
-// send formfeed
-func (e *Escpos) Formfeed() {
-	e.FormfeedN(1)
-}
-
 // set font
 func (e *Escpos) SetFont(font string) {
 	f := 0
@@ -556,15 +621,15 @@ func (e *Escpos) SendFontSize() {
 }
 
 // set font size
-func (e *Escpos) SetFontSize(width, height uint8) {
-	if width > 0 && height > 0 && width <= 8 && height <= 8 {
-		e.width = width
-		e.height = height
-		e.SendFontSize()
-	} else {
-		log.Fatal(fmt.Sprintf("Invalid font size passed: %d x %d", width, height))
-	}
-}
+// func (e *Escpos) SetFontSize(width, height uint8) {
+// 	if width > 0 && height > 0 && width <= 8 && height <= 8 {
+// 		e.width = width
+// 		e.height = height
+// 		e.SendFontSize()
+// 	} else {
+// 		log.Fatal(fmt.Sprintf("Invalid font size passed: %d x %d", width, height))
+// 	}
+// }
 
 // send underline
 func (e *Escpos) SendUnderline() {
@@ -723,32 +788,32 @@ func (e *Escpos) Text(params map[string]string, data string) {
 	}
 
 	// do dw (double font width)
-	if dw, ok := params["dw"]; ok && (dw == "true" || dw == "1") {
-		e.SetFontSize(2, e.height)
-	}
+	// if dw, ok := params["dw"]; ok && (dw == "true" || dw == "1") {
+	// 	e.SetFontSize(2, e.height)
+	// }
 
-	// do dh (double font height)
-	if dh, ok := params["dh"]; ok && (dh == "true" || dh == "1") {
-		e.SetFontSize(e.width, 2)
-	}
+	// // do dh (double font height)
+	// if dh, ok := params["dh"]; ok && (dh == "true" || dh == "1") {
+	// 	e.SetFontSize(e.width, 2)
+	// }
 
-	// do font width
-	if width, ok := params["width"]; ok {
-		if i, err := strconv.Atoi(width); err == nil {
-			e.SetFontSize(uint8(i), e.height)
-		} else {
-			log.Fatal(fmt.Sprintf("Invalid font width: %s", width))
-		}
-	}
+	// // do font width
+	// if width, ok := params["width"]; ok {
+	// 	if i, err := strconv.Atoi(width); err == nil {
+	// 		e.SetFontSize(uint8(i), e.height)
+	// 	} else {
+	// 		log.Fatal(fmt.Sprintf("Invalid font width: %s", width))
+	// 	}
+	// }
 
-	// do font height
-	if height, ok := params["height"]; ok {
-		if i, err := strconv.Atoi(height); err == nil {
-			e.SetFontSize(e.width, uint8(i))
-		} else {
-			log.Fatal(fmt.Sprintf("Invalid font height: %s", height))
-		}
-	}
+	// // do font height
+	// if height, ok := params["height"]; ok {
+	// 	if i, err := strconv.Atoi(height); err == nil {
+	// 		e.SetFontSize(e.width, uint8(i))
+	// 	} else {
+	// 		log.Fatal(fmt.Sprintf("Invalid font height: %s", height))
+	// 	}
+	// }
 
 	// do y positioning
 	if x, ok := params["x"]; ok {
@@ -775,47 +840,10 @@ func (e *Escpos) Text(params map[string]string, data string) {
 	}
 }
 
-// feed the printer
-func (e *Escpos) Feed(params map[string]string) {
-	// handle lines (form feed X lines)
-	if l, ok := params["line"]; ok {
-		if i, err := strconv.Atoi(l); err == nil {
-			e.FormfeedN(i)
-		} else {
-			log.Fatal(fmt.Sprintf("Invalid line number %d", l))
-		}
-	}
-
-	// handle units (dots)
-	if u, ok := params["unit"]; ok {
-		if i, err := strconv.Atoi(u); err == nil {
-			e.SendMoveY(uint16(i))
-		} else {
-			log.Fatal(fmt.Sprintf("Invalid unit number %d", u))
-		}
-	}
-
-	// send linefeed
-	e.Linefeed()
-
-	// reset variables
-	e.reset()
-
-	// reset printer
-	e.SendEmphasize()
-	e.SendRotate()
-	e.SendSmooth()
-	e.SendReverse()
-	e.SendUnderline()
-	e.SendUpsidedown()
-	e.SendFontSize()
-	e.SendUnderline()
-}
-
 // feed and cut based on parameters
 func (e *Escpos) FeedAndCut(params map[string]string) {
 	if t, ok := params["type"]; ok && t == "feed" {
-		e.Formfeed()
+		e.FormFeed()
 	}
 
 	e.Cut()
@@ -890,28 +918,64 @@ func (e *Escpos) Image(params map[string]string, data string) {
 
 }
 
-// write a "node" to the printer
-func (e *Escpos) WriteNode(name string, params map[string]string, data string) {
-	cstr := ""
-	if data != "" {
-		str := data[:]
-		if len(data) > 40 {
-			str = fmt.Sprintf("%s ...", data[0:40])
+// WriteNode write a "node" to the printer
+func (e *Escpos) WriteNode(data []models.Printer) {
+	// cstr := ""
+	// if data != "" {
+	// 	str := data[:]
+	// 	if len(data) > 40 {
+	// 		str = fmt.Sprintf("%s ...", data[0:40])
+	// 	}
+	// 	cstr = fmt.Sprintf(" => '%s'", str)
+	// }
+	// log.Printf("Write: %s => %+v%s\n", name, params, cstr)
+	for _, row := range data {
+		if row.Line && len(row.Text) == 0 {
+			// if e.Debug {
+			// fmt.Println("TODO: add print line ------")
+			// }
+			e.LinePrint()
+		} else if row.Image {
+			if e.Debug {
+				fmt.Println("TODO: add print image")
+			}
+		} else if row.BarCode {
+			if e.Debug {
+				fmt.Println("TODO: add print bar code")
+			}
+		} else if row.QrCode {
+			if e.Debug {
+				fmt.Println("TODO: add print QR code")
+			}
+		} else {
+			if row.Style == "bold" {
+				e.SetBold(true)
+			} else if row.Style == "small" {
+				e.SetSmall(true)
+			}
+			if row.Size != "normal" {
+				e.SetFontSize(row.Size)
+			}
+			e.SetAlign(row.Align)
+			e.WriteText(row.Text)
+			e.timeoutWait()
+			e.Linefeed()
+			e.timeoutWait()
+			e.SetAlign("left")
+			if row.Style == "bold" {
+				e.SetBold(false)
+			} else if row.Style == "small" {
+				e.SetSmall(false)
+			}
+			if row.Size != "normal" {
+				e.SetFontSize("normal")
+			}
+			if row.Line {
+				e.LinePrint()
+			}
+			if e.Debug {
+				fmt.Println(">>>>>>>>>>>>>>>>>>>>", row.Text)
+			}
 		}
-		cstr = fmt.Sprintf(" => '%s'", str)
-	}
-	log.Printf("Write: %s => %+v%s\n", name, params, cstr)
-
-	switch name {
-	case "text":
-		e.Text(params, data)
-	case "feed":
-		e.Feed(params)
-	case "cut":
-		e.FeedAndCut(params)
-	case "pulse":
-		e.Pulse()
-	case "image":
-		e.Image(params, data)
 	}
 }
