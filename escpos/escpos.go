@@ -9,18 +9,25 @@ import (
 	"time"
 
 	"github.com/tarm/serial"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/charmap"
 )
 
-// BAUDRATE Though most of these printers are factory configured for 19200 baud
-// operation, a few rare specimens instead work at 9600.  If so, change
-// this constant.  This will NOT make printing slower!  The physical
-// print and feed mechanisms are the bottleneck, not the port speed.
-const BAUDRATE = 19200
+const (
+	// BAUDRATE Though most of these printers are factory configured for 19200 baud
+	// operation, a few rare specimens instead work at 9600.  If so, change
+	// this constant.  This will NOT make printing slower!  The physical
+	// print and feed mechanisms are the bottleneck, not the port speed.
+	BAUDRATE = 19200
 
-// BYTETIME Number of microseconds to issue one byte to the printer.  11 bits
-// (not 8) to accommodate idle, start and stop bits.  Idle time might
-// be unnecessary, but erring on side of caution here.
-const BYTETIME = (((11 * 1000000) + (BAUDRATE / 2)) / BAUDRATE)
+	// BYTETIME Number of microseconds to issue one byte to the printer.  11 bits
+	// (not 8) to accommodate idle, start and stop bits.  Idle time might
+	// be unnecessary, but erring on side of caution here.
+	BYTETIME = (((11 * 1000000) + (BAUDRATE / 2)) / BAUDRATE)
+
+	// ASCIILF -> \n
+	ASCIILF = byte(10)
+)
 
 // text replacement map
 var textReplaceMap = map[string]string{
@@ -53,6 +60,7 @@ func (e *Escpos) textReplace(data string) string {
 // Escpos - library for the Adafruit Thermal Printer:
 // https://www.adafruit.com/product/597
 type Escpos struct {
+	enc *encoding.Encoder
 	// destination
 	// dst io.Writer
 	// config *serial.Config
@@ -68,10 +76,10 @@ type Escpos struct {
 	rotate     uint8
 
 	prevByte      byte
-	column        uint
+	column        uint8
 	maxColumn     uint8
-	charHeight    uint8
-	lineSpacing   uint8
+	charHeight    int64
+	lineSpacing   int64
 	barcodeHeight uint8
 
 	printDensity   uint8
@@ -109,7 +117,7 @@ func (e *Escpos) reset() {
 	e.reverse = 0
 	e.smooth = 0
 
-	e.prevByte = byte(10)
+	e.prevByte = ASCIILF
 	e.column = 0
 	e.maxColumn = 32
 	e.charHeight = 24
@@ -129,6 +137,7 @@ func (e *Escpos) reset() {
 // New - create Escpos printer
 func New(debug bool, port string, baud int) (e *Escpos) {
 	e = &Escpos{Debug: debug}
+	e.enc = charmap.CodePage437.NewEncoder()
 	e.Firmware = 268
 	if !e.Debug {
 		config := &serial.Config{Name: port, Baud: baud}
@@ -384,61 +393,65 @@ func (e *Escpos) SetAlign(align string) (err error) {
 
 // WriteText - The underlying method for all high-level printing (e.g. println()).
 // The inherited Print class handles the rest!
-func (e *Escpos) WriteText(data string) {
+func (e *Escpos) WriteText(data string) (err error) {
 	if e.Verbose {
 		fmt.Printf("func SetAlign()\n")
-		// e.Write("\x13")
 	}
 	data = e.textReplace(data)
-	if len(data) > 0 {
+	rawData, err := e.enc.String(data)
+	if err != nil {
+		return fmt.Errorf("Couldn't encode to charset (%s)", err)
+	}
+	if len(rawData) > 0 {
 		// b := byte{19}
-		for _, c := range []byte(data) {
-			// stream->write(c);
+		for _, c := range []byte(rawData) {
 			if c != 0x13 {
 				e.timeoutWait()
-				// stream->write(c);
 				if !e.Debug {
-					// e.dst.Write(data)
 					_, err := e.Serial.Write([]byte{c})
 					if err != nil {
 						e.err = err
 					}
+				} else {
+					// fmt.Printf("%c", c)
+					fmt.Printf("%d ", c)
 				}
-				// fmt.Println(c)
-				d := BYTETIME
-
+				d := int64(BYTETIME)
+				if c == ASCIILF || e.column == e.maxColumn {
+					e.timeoutSet(int64(BYTETIME) + ((e.charHeight + e.lineSpacing) * e.dotFeedTime))
+					e.timeoutWait()
+					e.column = 0
+					c = ASCIILF
+					if !e.Debug {
+						_, err := e.Serial.Write([]byte{c})
+						if err != nil {
+							e.err = err
+						}
+					} else {
+						fmt.Println("")
+					}
+					d += ((e.charHeight * e.dotPrintTime) + (e.lineSpacing * e.dotFeedTime))
+				} else {
+					e.column++
+				}
 				e.timeoutSet(int64(d))
 				e.prevByte = c
 			}
 		}
-
-		// e.Write(data)
+	} else {
+		return fmt.Errorf("len data = 0 :)")
 	}
-	// if(c != 0x13) { // Strip carriage returns
-	//     timeoutWait();
-	//     stream->write(c);
-	//     unsigned long d = BYTE_TIME;
-	//     if((c == '\n') || (column == maxColumn)) { // If newline or wrap
-	//       d += (prevByte == '\n') ?
-	//         ((charHeight+lineSpacing) * dotFeedTime) :             // Feed line
-	//         ((charHeight*dotPrintTime)+(lineSpacing*dotFeedTime)); // Text line
-	//       column = 0;
-	//       c      = '\n'; // Treat wrap as newline on next pass
-	//     } else {
-	//       column++;
-	//     }
-	//     timeoutSet(d);
-	//     prevByte = c;
-	//   }
-
-	//   return 1;
+	return nil
 }
 
-// -------------- TODO --------------
+// Flush - set \f
+func (e *Escpos) Flush() {
+	e.Write("\f")
+}
 
 // These commands work only on printers w/recent firmware ------------------
 
-// Alters some chars in ASCII 0x23-0x7E range; see datasheet
+// SetCharset - Alters some chars in ASCII 0x23-0x7E range; see datasheet
 func (e *Escpos) SetCharset(val uint8) {
 	if e.Verbose {
 		fmt.Printf("func SetCharset()\n")
@@ -449,25 +462,37 @@ func (e *Escpos) SetCharset(val uint8) {
 	e.Write(fmt.Sprintf("\x1BR%c", val))
 }
 
-// Selects alt symbols for 'upper' ASCII values 0x80-0xFF
-func (e *Escpos) SetCodePage(val uint8) {
+// SetCodePage - Selects alt symbols for 'upper' ASCII values 0x80-0xFF
+func (e *Escpos) SetCodePage(code string) {
 	if e.Verbose {
 		fmt.Printf("func SetCodePage()\n")
 	}
-	if val > 47 {
-		val = 47
+	var n byte
+	switch code {
+	case "PC437": // USA: Standard Europe
+		e.enc = charmap.CodePage437.NewEncoder()
+		n = 0
+	case "PC850": // Western Europe
+		e.enc = charmap.CodePage850.NewEncoder()
+		n = 2
+	case "CP1251": // Cyrillic
+		e.enc = charmap.Windows1251.NewEncoder()
+		n = 6
+	default:
+		n = 47
 	}
-	e.Write(fmt.Sprintf("\x1Bt%c", val))
+	e.Write(fmt.Sprintf("\x1Bt%c", n))
 }
 
 func (e *Escpos) tab() {
 	if e.Verbose {
 		fmt.Printf("func tab()\n")
 	}
-	// writeBytes(ASCII_TAB);
 	e.Write("\t")
-	// e.column = (e.column + 4) & 0b11111100;
+	e.column = (e.column + 4)
 }
+
+// -------------- TODO --------------
 
 func (e *Escpos) SetCharSpacing(val uint8) {
 	if e.Verbose {

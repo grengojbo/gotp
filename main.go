@@ -32,6 +32,13 @@ var cmdText = cli.Command{
 	Name:   "text",
 	Usage:  "Print text",
 	Action: runText,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "align, a",
+			Usage: "text align (L,C,R)",
+			Value: "left",
+		},
+	},
 }
 
 func runTest(c *cli.Context) {
@@ -42,6 +49,7 @@ func runTest(c *cli.Context) {
 	p.Verbose = c.GlobalBool("verbose")
 
 	p.Begin()
+	p.SetCodePage(c.GlobalString("encode"))
 	p.TestPage()
 
 	if c.GlobalBool("verbose") {
@@ -53,22 +61,29 @@ func runText(c *cli.Context) {
 	if c.GlobalBool("verbose") {
 		fmt.Println("Print text")
 	}
-	p := escpos.New(c.GlobalBool("debug"), "/dev/ttyAMA0", 19200)
-	p.Verbose = c.GlobalBool("verbose")
+	if c.Args().Present() {
+		p := escpos.New(c.GlobalBool("debug"), "/dev/ttyAMA0", 19200)
+		p.Verbose = c.GlobalBool("verbose")
 
-	if c.GlobalBool("verbose") {
-		fmt.Println("---------------------------------")
-		fmt.Println(c.Args())
-		fmt.Println("---------------------------------")
-	}
-	p.Begin()
-	p.SetAlign("R")
-	for _, src := range c.Args() {
-		// p.Write(src)
-		p.WriteText(src)
+		if c.GlobalBool("verbose") {
+			fmt.Println("---------------------------------")
+			fmt.Println(c.Args())
+			fmt.Println("---------------------------------")
+		}
+		p.Begin()
+		p.SetCodePage(c.GlobalString("encode"))
+		p.SetAlign(c.String("align"))
+		for _, src := range c.Args() {
+			// p.Write(src)
+			if err := p.WriteText(src); err != nil {
+				fmt.Println(err)
+			}
+			p.Linefeed()
+		}
 		p.Linefeed()
+	} else {
+		fmt.Println("Is not argument :)")
 	}
-	p.Linefeed()
 
 	if c.GlobalBool("verbose") {
 		fmt.Println("Finish :)")
@@ -94,6 +109,11 @@ func main() {
 		cli.BoolFlag{
 			Name:  "debug",
 			Usage: "Debug mode",
+		},
+		cli.StringFlag{
+			Name:  "encode",
+			Usage: "Setting Code page",
+			Value: "PC437",
 		},
 	}
 
