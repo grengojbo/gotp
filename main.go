@@ -89,11 +89,11 @@ func runFile(c *cli.Context) {
 		}
 		if len(res.Lines) > 0 {
 			p.WriteNode(res.Lines)
-			p.Feed(2)
+			// p.Feed(2)
 		}
 		if len(res.Footer) > 0 {
 			p.WriteNode(res.Footer)
-			p.Feed(2)
+			p.Feed(3)
 		}
 	}
 

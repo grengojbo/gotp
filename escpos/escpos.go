@@ -567,14 +567,130 @@ func (e *Escpos) DoubleHeight(state bool) {
 	}
 }
 
+func (e *Escpos) setBarcodeHeight(val uint8) {
+	if val < 1 {
+		val = 1
+	} else if val > 255 {
+		val = 255
+	}
+	e.barcodeHeight = val
+	e.Write(fmt.Sprintf("\x1D\x68%c", val))
+}
+
+// BarcodeChr(self, msg):
+// 		self.write(chr(29)) # Leave
+// 		self.write(chr(72)) # Leave
+// 		self.write(msg)     # Print barcode # 1:Abovebarcode 2:Below 3:Both 0:Not printed
+
+// BarCode print barcode
+// char - 1:Abovebarcode 2:Below 3:Both 0:Not printed
+func (e *Escpos) BarCode(code string, data string) {
+	if e.Verbose {
+		fmt.Printf("func BarCode()\n")
+	}
+	var a uint8
+	switch code {
+	case "UPC_A":
+		a = 0
+	case "UPC_E":
+		a = 1
+	case "UPCA":
+		a = 0
+	case "UPCE":
+		a = 1
+	case "EAN13":
+		a = 2
+	case "EAN8":
+		a = 3
+	case "I25":
+		a = 5
+	case "CODEBAR":
+		a = 6
+	case "CODE93":
+		a = 7
+	case "CODE128":
+		a = 8
+	case "CODE11":
+		a = 9
+	case "MSI":
+		a = 10
+	default:
+		a = 4
+	}
+	// Print label below barcode
+	e.WriteBytes([]byte{29, 72, 2})
+	// Barcode width
+	e.WriteBytes([]byte{29, 119, 3})
+	//  Barcode type
+	e.Write(fmt.Sprintf("\x1D\x6B%c", a))
+	e.timeoutWait()
+	e.timeoutSet((int64(e.barcodeHeight) + 40) * e.dotPrintTime)
+	e.Write(data)
+	// super(Adafruit_Thermal, self).write(text)
+	e.prevByte = ASCIILF
+	e.Feed(2)
+}
+
+// WriteNode write a "node" to the printer
+func (e *Escpos) WriteNode(data []models.Printer) {
+	for _, row := range data {
+		if row.Line && len(row.Text) == 0 {
+			e.LinePrint()
+		} else if row.Image {
+			if e.Debug {
+				fmt.Println("TODO: add print image")
+			}
+		} else if row.BarCode {
+			e.SetAlign(row.Align)
+			if len(row.Size) > 0 {
+
+			}
+		} else if row.QrCode {
+			if e.Debug {
+				fmt.Println("TODO: add print QR code")
+			}
+		} else {
+			if row.Style == "bold" {
+				e.SetBold(true)
+			} else if row.Style == "small" {
+				e.SetSmall(true)
+			}
+			if row.Size != "normal" {
+				e.SetFontSize(row.Size)
+			}
+			e.SetAlign(row.Align)
+			e.WriteText(row.Text)
+
+			e.timeoutWait()
+			e.Linefeed()
+			e.timeoutWait()
+			e.SetAlign("left")
+			if row.Style == "bold" {
+				e.SetBold(false)
+			} else if row.Style == "small" {
+				e.SetSmall(false)
+			}
+			if row.Size != "normal" {
+				e.SetFontSize("normal")
+			}
+			if row.Line {
+				e.LinePrint()
+			}
+			if e.Debug {
+				fmt.Println(">>>>>>>>>>>>>>>>>>>>", row.Text)
+			}
+		}
+	}
+}
+
 // -------------- TODO --------------
 
-func (e *Escpos) SetCharSpacing(val uint8) {
-	if e.Verbose {
-		fmt.Printf("func SetCharSpacing()\n")
-	}
-	e.Write(fmt.Sprintf("\x1B %c", val))
-}
+// func (e *Escpos) SetCharSpacing(val uint8) {
+// 	if e.Verbose {
+// 		fmt.Printf("func SetCharSpacing()\n")
+// 	}
+// 	e.Write(fmt.Sprintf("\x1B %c", val))
+// }
 
 // init/reset printer settings
 func (e *Escpos) Init() {
@@ -916,66 +1032,4 @@ func (e *Escpos) Image(params map[string]string, data string) {
 	e.gSend(byte('0'), byte('p'), a)
 	e.gSend(byte('0'), byte('2'), []byte{})
 
-}
-
-// WriteNode write a "node" to the printer
-func (e *Escpos) WriteNode(data []models.Printer) {
-	// cstr := ""
-	// if data != "" {
-	// 	str := data[:]
-	// 	if len(data) > 40 {
-	// 		str = fmt.Sprintf("%s ...", data[0:40])
-	// 	}
-	// 	cstr = fmt.Sprintf(" => '%s'", str)
-	// }
-	// log.Printf("Write: %s => %+v%s\n", name, params, cstr)
-	for _, row := range data {
-		if row.Line && len(row.Text) == 0 {
-			// if e.Debug {
-			// fmt.Println("TODO: add print line ------")
-			// }
-			e.LinePrint()
-		} else if row.Image {
-			if e.Debug {
-				fmt.Println("TODO: add print image")
-			}
-		} else if row.BarCode {
-			if e.Debug {
-				fmt.Println("TODO: add print bar code")
-			}
-		} else if row.QrCode {
-			if e.Debug {
-				fmt.Println("TODO: add print QR code")
-			}
-		} else {
-			if row.Style == "bold" {
-				e.SetBold(true)
-			} else if row.Style == "small" {
-				e.SetSmall(true)
-			}
-			if row.Size != "normal" {
-				e.SetFontSize(row.Size)
-			}
-			e.SetAlign(row.Align)
-			e.WriteText(row.Text)
-			e.timeoutWait()
-			e.Linefeed()
-			e.timeoutWait()
-			e.SetAlign("left")
-			if row.Style == "bold" {
-				e.SetBold(false)
-			} else if row.Style == "small" {
-				e.SetSmall(false)
-			}
-			if row.Size != "normal" {
-				e.SetFontSize("normal")
-			}
-			if row.Line {
-				e.LinePrint()
-			}
-			if e.Debug {
-				fmt.Println(">>>>>>>>>>>>>>>>>>>>", row.Text)
-			}
-		}
-	}
 }

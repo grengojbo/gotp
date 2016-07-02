@@ -2,7 +2,7 @@
   "header": [
     {
       "line": false,
-      "align": "left",
+      "align": "center",
       "style": "bold",
       "size": "normal",
       "text": "Чек № 003-0000001",
@@ -35,7 +35,7 @@
   ],
   "footer": [
     {
-      "line": false,
+      "line": true,
       "align": "left",
       "style": "normal",
       "size": "large",
@@ -45,8 +45,14 @@
       "barCode": false
     },
     {
-      "line": true,
-      "text": ""
+      "line": false,
+      "align": "center",
+      "style": "normal",
+      "size": "normal",
+      "text": "1234567890",
+      "image": false,
+      "qrCode": false,
+      "barCode": true
     },
     {
       "line": false,
@@ -68,17 +74,7 @@
       "qrCode": false,
       "barCode": false
     },
-    {
-      "line": false,
-      "align": "center",
-      "style": "normal",
-      "size": "normal",
-      "text": "1234567890",
-      "image": false,
-      "qrCode": false,
-      "barCode": true
-    },
-    {
+        {
       "line": false,
       "align": "center",
       "style": "normal",
