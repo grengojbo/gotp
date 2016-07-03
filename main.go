@@ -84,15 +84,15 @@ func runFile(c *cli.Context) {
 		p.SetCodePage(c.GlobalString("encode"))
 
 		if len(res.Header) > 0 {
-			p.WriteNode(res.Header)
+			p.WriteNode(res.Header, &res.BarCode)
 			p.Feed(1)
 		}
 		if len(res.Lines) > 0 {
-			p.WriteNode(res.Lines)
+			p.WriteNode(res.Lines, &res.BarCode)
 			// p.Feed(2)
 		}
 		if len(res.Footer) > 0 {
-			p.WriteNode(res.Footer)
+			p.WriteNode(res.Footer, &res.BarCode)
 			p.Feed(3)
 		}
 	}

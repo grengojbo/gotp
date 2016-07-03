@@ -577,13 +577,15 @@ func (e *Escpos) setBarcodeHeight(val uint8) {
 	e.Write(fmt.Sprintf("\x1D\x68%c", val))
 }
 
-// BarcodeChr(self, msg):
-// 		self.write(chr(29)) # Leave
-// 		self.write(chr(72)) # Leave
-// 		self.write(msg)     # Print barcode # 1:Abovebarcode 2:Below 3:Both 0:Not printed
+// BarcodeChr - 1:Abovebarcode 2:Below 3:Both 0:Not printed
+func (e *Escpos) BarcodeChr(val uint8) {
+	e.Write(fmt.Sprintf("\x1D\x68%c", val))
+	// 		self.write(chr(29)) # Leave
+	// 		self.write(chr(72)) # Leave
+	// 		self.write(msg)     # Print barcode # 1:Abovebarcode 2:Below 3:Both 0:Not printed
+}
 
 // BarCode print barcode
-// char - 1:Abovebarcode 2:Below 3:Both 0:Not printed
 func (e *Escpos) BarCode(code string, data string) {
 	if e.Verbose {
 		fmt.Printf("func BarCode()\n")
@@ -602,6 +604,8 @@ func (e *Escpos) BarCode(code string, data string) {
 		a = 2
 	case "EAN8":
 		a = 3
+	case "CODE39":
+		a = 4
 	case "I25":
 		a = 5
 	case "CODEBAR":
@@ -632,7 +636,7 @@ func (e *Escpos) BarCode(code string, data string) {
 }
 
 // WriteNode write a "node" to the printer
-func (e *Escpos) WriteNode(data []models.Printer) {
+func (e *Escpos) WriteNode(data []models.Printer, set *models.BarCodeOption) {
 	for _, row := range data {
 		if row.Line && len(row.Text) == 0 {
 			e.LinePrint()
@@ -642,9 +646,14 @@ func (e *Escpos) WriteNode(data []models.Printer) {
 			}
 		} else if row.BarCode {
 			e.SetAlign(row.Align)
-			if len(row.Size) > 0 {
-
-			}
+			// if len(row.Size) > 0 {
+			// 	if msg, err :=  strconv.Atoi(row.Size); err == nil {
+			e.BarcodeChr(set.Chr)
+			e.setBarcodeHeight(set.Height)
+			e.BarCode(set.Code, row.Text)
+			// 		e.
+			// 	}
+			// }
 		} else if row.QrCode {
 			if e.Debug {
 				fmt.Println("TODO: add print QR code")

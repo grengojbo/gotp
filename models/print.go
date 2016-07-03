@@ -21,9 +21,17 @@ type Printer struct {
 
 // PrinterLine - print collection
 type PrinterLine struct {
-	Header []Printer `json:"header"`
-	Lines  []Printer `json:"lines"`
-	Footer []Printer `json:"footer"`
+	Header  []Printer     `json:"header"`
+	Lines   []Printer     `json:"lines"`
+	Footer  []Printer     `json:"footer"`
+	BarCode BarCodeOption `json:"barCode"`
+}
+
+// BarCodeOption - print option for bar code
+type BarCodeOption struct {
+	Height uint8  `json:"height"`
+	Chr    uint8  `json:"chr"`
+	Code   string `json:"code"`
 }
 
 // LoadPrintModel - lading model
@@ -36,6 +44,14 @@ func LoadPrintModel(file string) (res PrinterLine, err error) {
 	header, _ := v.GetObjectArray("header")
 	lines, _ := v.GetObjectArray("lines")
 	footer, _ := v.GetObjectArray("footer")
+	b, _ := v.GetObject("barCode")
+	height, _ := b.GetInt64("height")
+	chr, _ := b.GetInt64("chr")
+	code, _ := b.GetString("code")
+	res.BarCode.Height = uint8(height)
+	res.BarCode.Chr = uint8(chr)
+	res.BarCode.Code = code
+
 	for _, row := range header {
 		line, _ := row.GetBoolean("line")
 		image, _ := row.GetBoolean("image")

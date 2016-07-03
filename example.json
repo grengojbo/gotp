@@ -1,4 +1,9 @@
 {
+  "barCode": {
+    "height": 50,
+    "chr": 0,
+    "code": "CODE39"
+  },
   "header": [
     {
       "line": false,
