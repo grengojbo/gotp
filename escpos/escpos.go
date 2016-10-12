@@ -157,6 +157,13 @@ func New(debug bool, port string, baud int) (e *Escpos) {
 	return
 }
 
+// IsOk - check error
+func (e *Escpos) IsOk() bool {
+	if e.err != nil {
+		return false
+	}
+	return true
+}
 func (e *Escpos) SetDefault() {
 	if e.Verbose {
 		fmt.Println("TODO: SetDefault()")
@@ -637,7 +644,10 @@ func (e *Escpos) BarCode(code string, data string) {
 
 // WriteNode write a "node" to the printer
 func (e *Escpos) WriteNode(data []models.Printer, set *models.BarCodeOption) {
-	for _, row := range data {
+	for i, row := range data {
+		if i%10 == 0 {
+			time.Sleep(500 * time.Millisecond)
+		}
 		if row.Line && len(row.Text) == 0 {
 			e.LinePrint()
 		} else if row.Image {
