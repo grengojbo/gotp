@@ -645,8 +645,8 @@ func (e *Escpos) BarCode(code string, data string) {
 // WriteNode write a "node" to the printer
 func (e *Escpos) WriteNode(data []models.Printer, set *models.BarCodeOption) {
 	for i, row := range data {
-		if i%10 == 0 {
-			time.Sleep(500 * time.Millisecond)
+		if i%20 == 0 {
+			time.Sleep(1000 * time.Millisecond)
 		}
 		if row.Line && len(row.Text) == 0 {
 			e.LinePrint()
